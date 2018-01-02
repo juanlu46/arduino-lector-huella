@@ -2,11 +2,12 @@
 #include <Wire.h> 
 #include <LiquidCrystal_I2C.h>
 #include <Adafruit_Fingerprint.h>
+#include <FPM.h>
 
 
 /* DECLARACIÓN */
 LiquidCrystal_I2C lcd(0x27); //Sustituir con ejemplo gestorluceslcd
-Adafruit_Fingerprint finger = Adafruit_Fingerprint(&Serial1);
+FPM finger;
 //Pines
 uint8_t pinTX=19;
 uint8_t pinRX=18;
@@ -22,6 +23,7 @@ char sAccion;
 String sCuerpoMensaje;
 int iNumeroSocio=-1;
 String auxConcat="";
+int16_t id;
 
 
 void setup() {
@@ -46,8 +48,9 @@ void setup() {
   delay(100);
 
   //Inicializamos sensor de huella
-  finger.begin(57600);
-  if (!finger.verifyPassword()) {
+  Serial1.begin(57600);
+  
+  if (!finger.begin(&Serial1);) {
     lcd.clear();
     lcd.home();
     lcd.print("  ERROR SENSOR  ");
@@ -70,12 +73,19 @@ void loop() {
     sCuerpoMensaje=stringWeb.substring(1);
     switch(sAccion){
       case 'r': //Registrar huella - CuerpoMensaje: número de socio
-        registrarHuella((uint16_t)sCuerpoMensaje.toInt());
-        digitalWrite(pinLed,LOW);
+        id=(uint16_t)sCuerpoMensaje.toInt();
+        if(getFreeIndex(&id)){
+          registrarHuella(id);
+          digitalWrite(pinLed,LOW);
+        }else{
+          Serial.println("No hay espacio para más socios en el sensor. Necesaria limpieza.");
+        }
         break;
+        
       case 'e': //Eliminar huella - CuerpoMensaje: número de socio
         eliminarHuella((uint16_t)sCuerpoMensaje.toInt());
         break;
+        
       case 'b': //Borrar BBDD sensor huella - CuerpoMensaje: vacio
         finger.emptyDatabase();
         break;
@@ -110,8 +120,7 @@ void loop() {
   delay(10);
 }
 
-uint8_t registrarHuella(uint16_t idSocio) {
-
+int registrarHuella(uint16_t idSocio) {
   int p = -1;
   Serial.print("Ponga el dedo que prefiera en el sensor.");
   while (p != FINGERPRINT_OK) {
@@ -132,6 +141,7 @@ uint8_t registrarHuella(uint16_t idSocio) {
       Serial.println("Error desconocido");
       break;
     }
+    yield();
   }
 
   // OK success!
@@ -163,6 +173,7 @@ uint8_t registrarHuella(uint16_t idSocio) {
   p = 0;
   while (p != FINGERPRINT_NOFINGER) {
     p = finger.getImage();
+    yield();
   }
   Serial.print("Socio número "); Serial.println(idSocio);
   p = -1;
@@ -185,6 +196,7 @@ uint8_t registrarHuella(uint16_t idSocio) {
       Serial.println("Error desconocido.");
       break;
     }
+    yield();
   }
 
   // OK success!
@@ -284,4 +296,26 @@ uint8_t eliminarHuella(uint16_t id) {
     Serial.print("Error desconocido: 0x"); Serial.println(p, HEX);
     return p;
   }   
+}
+
+bool getIDLibre(int16_t * id){
+  int p = -1;
+  for (int page = 0; page < (finger.capacity / FPM_TEMPLATES_PER_PAGE) + 1; page++){
+    p = finger.getFreeIndex(page, id);
+    switch (p){
+      case FINGERPRINT_OK:
+        if (*id != FINGERPRINT_NOFREEINDEX){
+          Serial.print("El próximo ID libre es: ");
+          Serial.println(*id);
+          return true;
+        }
+      case FINGERPRINT_PACKETRECIEVEERR:
+        Serial.println("Error de comunicación con el sensor.");
+        return false;
+      default:
+        Serial.println("Error desconocido");
+        return false;
+    }
+    yield();
+  }
 }
